@@ -1,0 +1,600 @@
+---
+title: "Analytic Sample"
+format: html
+editor: visual
+author: Jill Kumasaka
+date: today
+---
+
+## load packages
+
+```{r}
+#| echo: false
+
+library(haven)
+library(dplyr)
+library(here)
+library(mosaic)
+library(psych)
+library(questionr)
+library(rstatix)
+here()
+```
+
+
+## 2011-2012 data merge
+
+```{r}
+#generate temporary files for 2011-2012
+temp_AUQ_G <- read_xpt(here("Data/AUQ_G.xpt"))
+temp_AUX_G <- read_xpt(here("Data/AUX_G.xpt"))
+temp_DEMO_G <- read_xpt(here("Data/DEMO_G.xpt"))
+temp_SMQ_G <- read_xpt(here("Data/SMQ_G.xpt"))
+temp_VOCWB_G <- read_xpt(here("Data/VOCWB_G.xpt"))
+
+#merge files for 2011-2012
+merged_1112 <- left_join(temp_DEMO_G, temp_AUQ_G, by= "SEQN")
+merged_1112 <- left_join(merged_1112, temp_SMQ_G, by= "SEQN")
+merged_1112 <- left_join(merged_1112, temp_AUX_G, by= "SEQN")
+merged_1112 <- left_join(merged_1112, temp_VOCWB_G, by= "SEQN")
+
+#check that number of rows from original matches number of rows in merged
+nrow(temp_DEMO_G) == nrow(merged_1112) #true - successful merge
+```
+
+## 2015-2016 data merge
+
+```{r}
+#generate temporary files for 2015-2016
+temp_AUQ_I <- read_xpt(here("Data/AUQ_I.xpt"))
+temp_AUX_I <- read_xpt(here("Data/AUX_I.xpt"))
+temp_DEMO_I <- read_xpt(here("Data/DEMO_I.xpt"))
+temp_SMQ_I <- read_xpt(here("Data/SMQ_I.xpt"))
+temp_VOCWB_I <- read_xpt(here("Data/VOCWB_I.xpt"))
+
+#merge files for 2015-2016
+merged_1516 <- left_join(temp_DEMO_I, temp_AUQ_I, by= "SEQN")
+merged_1516 <- left_join(merged_1516, temp_SMQ_I, by= "SEQN")
+merged_1516 <- left_join(merged_1516, temp_AUX_I, by= "SEQN")
+merged_1516 <- left_join(merged_1516, temp_VOCWB_I, by= "SEQN")
+
+#check that number of rows from original matches number of rows in merged
+nrow(temp_DEMO_I) == nrow(merged_1516) #true - successful merge
+
+```
+
+## append data
+
+```{r}
+#add the observations from each dataset to each other
+appended_1112_1516<-bind_rows(merged_1112,
+                              merged_1516)
+```
+
+## add survey weights
+
+```{r}
+#use VOC bc least common denominator 
+appended_1112_1516 <- appended_1112_1516 %>% 
+  mutate(WTSVOC4Y = WTSVOC2Y/2)
+```
+
+## save appended data
+
+```{r}
+save(appended_1112_1516, file = "appended_dataset.rda") #19,727 observations 
+```
+
+## create age variable 20-69 years
+
+```{r}
+appended_edited <- appended_1112_1516 %>%
+  mutate(age_instudy = case_match(
+    RIDAGEYR, c(20:69) ~ 1, 
+    RIDAGEYR < 20 ~ 0, 
+    RIDAGEYR > 69 ~ 0,
+    .default = 0
+  ))
+
+freq(appended_edited$age_instudy) #9,444 observations in age range 
+
+```
+
+## data exploration - occupational noise exposure
+
+```{r}
+#create occupational noise exposure variable bc 2011-12 and 2015-16 is different variable name
+appended_edited <- appended_edited %>%
+  mutate(
+    occ_noise = coalesce(AUQ330, AUQ331))
+table(appended_edited$occ_noise)
+
+#recode so yes=1 and no=0
+appended_edited <- appended_edited %>%
+  mutate(
+    occ_noise = case_when(
+      occ_noise == 1 ~ 1,
+      occ_noise == 2 ~ 0
+    )
+  )
+appended_edited %>% freq_table(occ_noise)
+```
+
+
+## create variables for missing data
+
+```{r}
+#missing data on outcomes
+appended_edited <- appended_edited %>%
+  filter(age_instudy == 1) %>%
+  mutate(miss_out = case_when(is.na(AUXU3KR) |
+                                is.na(AUXU4KR) |
+                                is.na(AUXU6KR) |
+                                is.na(AUXU8KR) |
+                                is.na(AUXU3KL) |
+                                is.na(AUXU4KL) |
+                                is.na(AUXU3KL) |
+                                is.na(AUXU3KL) ~ 1,
+                             .default = 0))
+
+table(appended_edited$miss_out)
+
+#missing data on exposure 
+#including only participants with all VOCs measured - excluding toluene
+#if we want to include participants who have at least one VOC, use "&" instead of "|" logic
+appended_edited <- appended_edited %>%
+  filter(age_instudy == 1) %>%
+  mutate(miss_exp = case_when(is.na(LBXVBZ) |
+                                is.na(LBXVEB) |
+                                is.na(LBXVOX) |
+                                is.na(LBXVXY) | 
+                                is.na(occ_noise) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited$miss_exp)
+
+#missing data on EMM
+appended_edited <- appended_edited %>%
+  filter(age_instudy == 1) %>%
+  mutate(miss_EMM = case_when(is.na(RIDRETH3) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited$miss_EMM)
+
+#missing data on confounders
+appended_edited <- appended_edited %>%
+  filter(age_instudy == 1) %>%
+  mutate(miss_confound = case_when(is.na(RIDAGEYR) |
+                                is.na(DMDEDUC2) |
+                                is.na(INDFMPIR) |
+                                is.na(RIAGENDR) |
+                                is.na(SMQ020) ~ 1,
+                             TRUE ~ 0))
+table(appended_edited$miss_confound)
+
+```
+
+## subpopulation of only complete cases in age range
+
+```{r}
+#create subpopulation variable of only age included and complete cases 
+appended_edited <- appended_edited %>%
+  mutate(subpop1 = case_when(age_instudy == 1 & 
+                               miss_out == 0 & 
+                               miss_exp == 0 & 
+                               miss_EMM == 0 & 
+                               miss_confound == 0 ~ 1, 
+                             .default = 0))
+table(appended_edited$subpop1)
+
+#create dataset of only age included and complete cases 
+appended_complete <- appended_edited %>%
+  filter(subpop1 == 1)
+```
+
+
+## data exploration & create binary exposure - benzene
+
+```{r}
+#benzene
+summary(appended_complete$LBXVBZ)
+#histogram
+hist(
+  appended_complete$LBXVBZ,
+  breaks = 80,
+  main = "Histogram of Continous Blood Benzene",
+  xlab = "LBXVBZ",
+  col = "lightblue",
+  border = "black"
+)
+#create binary lod variable (LOD=0.024 - value is 0.017)
+appended_complete <- appended_complete %>%
+  mutate(benzene_nolod = case_when(
+    LBXVBZ > 0.017 ~ 1, 
+    LBXVBZ <= 0.017 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$benzene_nolod)
+
+#bar graph
+ggplot(appended_complete, aes(x = benzene_nolod)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary Benzene Using LOD",
+    x = "0=below LOD; 1=above LOD",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#subpopulation with only values abov LOD
+subpop_benzene_lod <- appended_complete %>%
+  filter(benzene_nolod == 1)
+
+
+#create quartiles with values above LOD
+subpop_benzene_lod <- subpop_benzene_lod %>%
+  mutate(
+    benzene_quart = ntile(LBXVBZ, 4)
+  )
+
+#label quartiles
+subpop_benzene_lod <- subpop_benzene_lod %>%
+  mutate(
+    benzene_quart = factor(
+      benzene_quart,
+      levels = 1:4,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+
+#check quartile values
+subpop_benzene_lod %>%
+  group_by(benzene_quart) %>%
+  summarise(
+    n = n(),
+    min = min(LBXVBZ, na.rm = TRUE),
+    max = max(LBXVBZ, na.rm = TRUE)
+  )
+    #Q3 min = 0.08 threshold
+
+#create binary benzene variable with T3 cutoff
+appended_complete <- appended_complete %>%
+  mutate(benzene_binary = case_when(
+    LBXVBZ >= 0.08 ~ 1, 
+    LBXVBZ < 0.08 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$benzene_binary)
+
+#bar graph
+ggplot(appended_complete, aes(x = benzene_binary)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary Benzene Using Quartiles",
+    x = "0=below Q3 threshold; 1=above Q3 threshold",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#cross-tabulate with noise exposure
+table(appended_complete$benzene_binary, appended_complete$occ_noise)
+
+```
+
+
+## data exploration & create binary exposure - ethylbenzene
+
+```{r}
+#ethylbenzene
+summary(appended_complete$LBXVEB)
+#histogram
+hist(
+  appended_complete$LBXVEB,
+  breaks = 80,
+  main = "Histogram of Continous Blood Ethylbenzene",
+  xlab = "LBXVBZ",
+  col = "lightblue",
+  border = "black"
+)
+#create binary lod variable (LOD=0.024 - value is 0.017)
+appended_complete <- appended_complete %>%
+  mutate(ethylbenzene_nolod = case_when(
+    LBXVEB > 0.017 ~ 1, 
+    LBXVEB <= 0.017 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$ethylbenzene_nolod)
+
+#bar graph
+ggplot(appended_complete, aes(x = ethylbenzene_nolod)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary Ethylbenzene Using LOD",
+    x = "0=below LOD; 1=above LOD",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#subpopulation with only values above LOD
+subpop_ethylbenzene_lod <- appended_complete %>%
+  filter(ethylbenzene_nolod == 1)
+
+
+#create quartiles with values above LOD
+subpop_ethylbenzene_lod <- subpop_ethylbenzene_lod %>%
+  mutate(
+    ethylbenzene_quart = ntile(LBXVEB, 4)
+  )
+
+#label quartiles
+subpop_ethylbenzene_lod <- subpop_ethylbenzene_lod %>%
+  mutate(
+    ethylbenzene_quart = factor(
+      ethylbenzene_quart,
+      levels = 1:4,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+
+#check quartile values
+subpop_ethylbenzene_lod %>%
+  group_by(ethylbenzene_quart) %>%
+  summarise(
+    n = n(),
+    min = min(LBXVEB, na.rm = TRUE),
+    max = max(LBXVEB, na.rm = TRUE)
+  )
+    #Q3 min = 0.058 threshold
+
+#create binary ethylbenzene variable with Q3 cutoff
+appended_complete <- appended_complete %>%
+  mutate(ethylbenzene_binary = case_when(
+    LBXVEB >= 0.058 ~ 1, 
+    LBXVEB < 0.058 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$ethylbenzene_binary)
+
+#bar graph
+ggplot(appended_complete, aes(x = ethylbenzene_binary)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary Ethylbenzene Using Quartiles",
+    x = "0=below Q3 threshold; 1=above Q3 threshold",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#cross-tabulate with noise exposure
+table(appended_complete$ethylbenzene_binary, appended_complete$occ_noise)
+
+```
+
+## data exploration & create binary exposure - o-xylene
+```{r}
+#o-xylene
+summary(appended_edited$LBXVOX)
+#histogram
+hist(
+  appended_edited$LBXVOX,
+  breaks = 80,
+  main = "Histogram of O-xylene",
+  xlab = "LBXVOX",
+  col = "lightblue",
+  border = "black"
+)
+
+#create binary lod variable (LOD=0.024 - value is 0.017)
+appended_complete <- appended_complete %>%
+  mutate(oxylene_nolod = case_when(
+    LBXVOX > 0.017 ~ 1, 
+    LBXVOX <= 0.017 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$oxylene_nolod)
+
+#bar graph
+ggplot(appended_complete, aes(x = oxylene_nolod)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary O-xylene Using LOD",
+    x = "0=below LOD; 1=above LOD",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#subpopulation with only values above LOD
+subpop_oxylene_lod <- appended_complete %>%
+  filter(oxylene_nolod == 1)
+
+#create quartiles with values above LOD
+subpop_oxylene_lod <- subpop_oxylene_lod %>%
+  mutate(
+    oxylene_quart = ntile(LBXVOX, 4)
+  )
+
+#label quartiles
+subpop_oxylene_lod <- subpop_oxylene_lod %>%
+  mutate(
+    oxylene_quart = factor(
+      oxylene_quart,
+      levels = 1:4,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+
+#check quartile values
+subpop_oxylene_lod %>%
+  group_by(oxylene_quart) %>%
+  summarise(
+    n = n(),
+    min = min(LBXVOX, na.rm = TRUE),
+    max = max(LBXVOX, na.rm = TRUE)
+  )
+    #Q3 min = 0.042 threshold
+
+#create binary o-xylene variable with Q3 cutoff
+appended_complete <- appended_complete %>%
+  mutate(oxylene_binary = case_when(
+    LBXVOX >= 0.042 ~ 1, 
+    LBXVOX < 0.042 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$oxylene_binary)
+
+#bar graph
+ggplot(appended_complete, aes(x = oxylene_binary)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary O-xylene Using Quartiles",
+    x = "0=below Q3 threshold; 1=above Q3 threshold",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#cross-tabulate with noise exposure
+table(appended_complete$oxylene_binary, appended_complete$occ_noise) #221 with both exposures
+
+```
+
+
+## data exploration & create binary exposure - m-/p-xylene ***
+
+```{r}
+#m-/p-xylene
+summary(appended_edited$LBXVXY)
+#histogram
+hist(
+  appended_edited$LBXVXY,
+  breaks = 1000,
+  main = "Histogram of m-/p-xylene",
+  xlab = "LBXVXY",
+  col = "lightblue",
+  border = "black"
+)
+
+#create binary lod variable (LOD=0.034 - value is 0.024)
+appended_complete <- appended_complete %>%
+  mutate(mpxylene_nolod = case_when(
+    LBXVXY > 0.024 ~ 1, 
+    LBXVXY <= 0.024 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$mpxylene_nolod)
+
+#bar graph
+ggplot(appended_complete, aes(x = mpxylene_nolod)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary m/p-xylene Using LOD",
+    x = "0=below LOD; 1=above LOD",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#subpopulation with only values above LOD
+subpop_mpxylene_lod <- appended_complete %>%
+  filter(mpxylene_nolod == 1)
+
+#create quartiles with values above LOD
+subpop_mpxylene_lod <- subpop_mpxylene_lod %>%
+  mutate(
+    mpxylene_quart = ntile(LBXVXY, 4)
+  )
+
+#label quartiles
+subpop_mpxylene_lod <- subpop_mpxylene_lod %>%
+  mutate(
+    mpxylene_quart = factor(
+      mpxylene_quart,
+      levels = 1:4,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+
+#check quartile values
+subpop_mpxylene_lod %>%
+  group_by(mpxylene_quart) %>%
+  summarise(
+    n = n(),
+    min = min(LBXVXY, na.rm = TRUE),
+    max = max(LBXVXY, na.rm = TRUE)
+  )
+    #Q3 min = 0.075 threshold
+
+#create binary m-/p-xylene variable with Q3 cutoff
+appended_complete <- appended_complete %>%
+  mutate(oxylene_binary = case_when(
+    LBXVOX >= 0.075 ~ 1, 
+    LBXVOX < 0.075 ~ 0, 
+    TRUE ~ 0
+  ))
+table(appended_complete$oxylene_binary)
+
+#bar graph
+ggplot(appended_complete, aes(x = oxylene_binary)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Bar Chart of Binary O-xylene Using Quartiles",
+    x = "0=below Q3 threshold; 1=above Q3 threshold",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+#cross-tabulate with noise exposure
+table(appended_complete$oxylene_binary, appended_complete$occ_noise) #70 with both exposures - consider tertiles
+
+```
+
+
+## create outcome audiometric testing binary variable 
+
+```{r}
+#make variables for average of right and left ears 
+appended_complete <- appended_complete %>%
+  mutate(
+    PTA_right = rowMeans(select(., AUXU3KR, AUXU4KR, AUXU6KR, AUXU8KR), na.rm = FALSE),
+    PTA_left  = rowMeans(select(., AUXU3KL, AUXU4KL, AUXU6KL, AUXU8KL), na.rm = FALSE),
+    PTA_better = pmin(PTA_right, PTA_left, na.rm = FALSE))
+
+appended_complete <- appended_complete %>%
+  mutate(hearing_loss = if_else(PTA_better > 20, 1, 0))
+
+table(appended_complete$hearing_loss)
+```
+
+## recode gender
+
+```{r}
+#male=1, female=0
+appended_complete <- appended_complete %>%
+  mutate(
+    RIAGENDR = case_when(
+      RIAGENDR == 1 ~ 1,
+      RIAGENDR == 2 ~ 0
+    )
+  )
+appended_complete %>% freq_table(RIAGENDR)
+```
+
+
+## recode smoking status
+
+```{r}
+#smoker=1, non-smoker=0
+appended_complete <- appended_complete %>%
+  mutate(
+    SMQ020 = case_when(
+      SMQ020 == 1 ~ 1,
+      SMQ020 == 2 ~ 0
+    )
+  )
+appended_complete %>% freq_table(SMQ020)
+```
+
+## save complete dataset
+```{r}
+#i chose a weird name for the dataset so renaming to complete_dataset for datset with all complete cases 
+complete_dataset <- appended_complete
+save(complete_dataset, file = "complete_dataset.rda") 
+```
