@@ -1,0 +1,125 @@
+---
+title: "Figure1"
+format: html
+editor: visual
+---
+
+## load packages
+
+```{r}
+#| echo: false
+
+library(haven)
+library(dplyr)
+library(here)
+library(mosaic)
+library(psych)
+library(questionr)
+library(rstatix)
+here()
+```
+
+
+## load data
+```{r}
+load(here("appended_edited.rda"))
+
+```
+
+
+## create PTA indicator
+```{r}
+#those with complete or partial PTA testing 
+appended_edited$audio_done <- as.integer(appended_edited$AUAEXSTS %in% c(1, 2))
+
+table(appended_edited$audio_done)
+
+appended_edited_audio <- appended_edited %>%
+  filter(audio_done == 1)
+```
+
+## create MEC indicator
+```{r}
+#will have a value for WTMEC2YR if they completed MEC 
+appended_edited$mec_half <- ifelse(is.na(appended_edited$WTSVOC2Y), 0, 1)
+
+table(appended_edited$mec_half)
+
+appended_edited_audio_mec <- appended_edited_audio %>%
+  filter(mec_half == 1)
+```
+
+
+## figure 1
+
+```{r}
+fig1 <- appended_edited_audio_mec %>%
+  summarise(
+    Assessed = n(),
+
+    Excluded_missing_exposure = sum(miss_exp == 1),
+    After_exposure = sum(miss_exp == 0),
+
+    Excluded_missing_outcome = sum(miss_exp == 0 & miss_out == 1),
+    After_outcome = sum(miss_exp == 0 & miss_out == 0),
+
+    Excluded_missing_EMM = sum(miss_exp == 0 &
+                               miss_out == 0 &
+                               miss_EMM == 1),
+    After_EMM = sum(miss_exp == 0 &
+                    miss_out == 0 &
+                    miss_EMM == 0),
+
+    Excluded_missing_confounders = sum(miss_exp == 0 &
+                                       miss_out == 0 &
+                                       miss_EMM == 0 &
+                                       miss_confound == 1),
+
+    Final_analytic_sample = sum(miss_exp == 0 &
+                                miss_out == 0 &
+                                miss_EMM == 0 &
+                                miss_confound == 0)
+  )
+
+summary(fig1)
+
+```
+
+```{r}
+#exploring missingness from exposure
+appended_edited_audio_mec <- appended_edited_audio_mec %>%
+  mutate(miss_voc = case_when(is.na(LBXVBZ) |
+                                is.na(LBXVEB) |
+                                is.na(LBXVOX) |
+                                is.na(LBXVXY) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited_audio_mec$miss_voc)
+
+appended_edited_audio_mec <- appended_edited_audio_mec %>%
+  mutate(miss_occ_noise = case_when(
+                                is.na(occ_noise) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited_audio_mec$miss_occ_noise)
+```
+
+```{r}
+#smoking
+appended_edited_audio_mec <- appended_edited_audio_mec %>%
+  mutate(miss_smoking = case_when(
+                                is.na(SMQ020) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited_audio_mec$miss_smoking) #none missing from smoking
+
+#PIR
+appended_edited_audio_mec <- appended_edited_audio_mec %>%
+  mutate(miss_PIR = case_when(
+                                is.na(INDFMPIR) ~ 1,
+                             TRUE ~ 0))
+
+table(appended_edited_audio_mec$miss_PIR) #likely most missing from PIR 
+
+```
+
