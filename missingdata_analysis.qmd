@@ -1,0 +1,137 @@
+---
+title: "Missing data analysis"
+format: html
+editor: visual
+author: Jill Kumasaka
+date: today
+---
+
+## load packages
+
+```{r}
+#| echo: false
+
+library(haven)
+library(dplyr)
+library(here)
+library(mosaic)
+library(psych)
+library(questionr)
+library(rstatix)
+library(ggplot2)
+library(survey)
+library(gtsummary)
+here()
+```
+
+## load data
+
+```{r}
+load(here("complete_dataset.rda")) #analytic sample only 
+load(here("fig1_dataset.rda")) #all those eligible, includes missing data 
+```
+
+## create dataset of only those with missing data
+
+```{r}
+table(fig1_data$age_instudy)
+
+#create subpop2 variable where 1 = missing data and 0 = analytic sample (complete cases)
+eligible_only <- fig1_data %>%
+  mutate(subpop2 = case_when(miss_out == 1 | 
+                               miss_exp == 1 | 
+                               miss_EMM == 1 | 
+                               miss_confound == 1 ~ 1, 
+                             .default = 0))
+table(eligible_only$subpop2) #1092 missing data 
+
+```
+
+
+## create table 1A
+
+```{r}
+#Relabel variables
+eligible_only <- eligible_only %>%
+  mutate(
+    RIDRETH3 = factor(
+      RIDRETH3,
+      levels = c(1, 2, 3, 4, 6, 7),
+      labels = c(
+        "Mexican American",
+        "Other Hispanic",
+        "Non-Hispanic White",
+        "Non-Hispanic Black",
+        "Non-Hispanic Asian",
+        "Other/Multi-racial"
+      )
+    ),
+      subpop2 = factor(
+      subpop2,
+      levels = c(1, 0),
+      labels = c("Missing Population", "Analytic Sample")
+    ),
+    RIAGENDR = factor(
+      RIAGENDR,
+      levels = c(1, 2),
+      labels = c("Male", "Female")
+    ),
+    SMQ020 = factor(
+      SMQ020,
+      levels = c(1, 2),
+      labels = c("Yes", "No")
+    ),
+    DMDEDUC2 = factor(
+      DMDEDUC2,
+      levels = c(1, 2, 3, 4, 5),
+      labels = c(
+        "Less than 9th grade",
+        "9–11th grade",
+        "HS grad/GED",
+        "Some college/AA",
+        "College graduate or above"
+      )
+    )
+  )
+ 
+#Survey weighting
+survey_tablea1 <- svydesign(
+  id      = ~SDMVPSU,
+  strata  = ~SDMVSTRA,
+  weights = ~WTSVOC4Y,
+  nest    = TRUE,
+  data    = eligible_only)
+
+#Running table
+tablea1 <- tbl_svysummary(
+  data = survey_tablea1,
+  by = subpop2,
+  include = c(RIDRETH3,  # variables to include
+              RIDAGEYR,
+              DMDEDUC2,
+              INDFMPIR,
+              RIAGENDR,
+              SMQ020),
+  label = list(
+    RIDRETH3 ~ "Race/ethnicity",
+    RIDAGEYR ~ "Age (years)",
+    DMDEDUC2 ~ "Education",
+    INDFMPIR ~ "Poverty-income ratio",
+    RIAGENDR ~ "Sex",
+    SMQ020 ~ "Ever smoker (>=100 cigarettes)"
+  ),
+  missing = "no", # don't include a Missing row (I can't figure out how to make the 
+                                                  #missing row unwtd counts, so using a new column instead)
+  statistic = list(
+    all_continuous() ~ "{mean} ({mean.std.error})", # using Mean and SE for all contin vars
+    all_categorical() ~ "{n_unweighted} ({p}%)") # using unweighted counts and wtd % for all cat vars
+  )
+
+#view table
+tablea1
+```
+
+
+
+
+
